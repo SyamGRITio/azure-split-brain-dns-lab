@@ -1,11 +1,14 @@
-data "azurerm_resource_group" "main" {
-  name = local.resource_group_name
+### Resource Group
+resource "azurerm_resource_group" "main" {
+  name     = local.resource_group_name
+  location = local.region
+  tags     = local.common_tags
 }
 
 ### Network (VNet+ subNet×2 + NSG + NSG association) ###
 resource "azurerm_virtual_network" "main" {
   name                           = "vnet-dev-001"
-  resource_group_name            = local.resource_group_name
+  resource_group_name            = azurerm_resource_group.main.name
   location                       = local.region
   private_endpoint_vnet_policies = "Disabled"
   address_space = [
@@ -16,7 +19,7 @@ resource "azurerm_virtual_network" "main" {
 
 resource "azurerm_subnet" "pe" {
   name                                          = "snet-pe"
-  resource_group_name                           = local.resource_group_name
+  resource_group_name                           = azurerm_resource_group.main.name
   virtual_network_name                          = azurerm_virtual_network.main.name
   address_prefixes                              = ["10.0.1.0/27"]
   private_link_service_network_policies_enabled = true
@@ -24,7 +27,7 @@ resource "azurerm_subnet" "pe" {
 
 resource "azurerm_subnet" "vm" {
   name                                          = "snet-vm"
-  resource_group_name                           = local.resource_group_name
+  resource_group_name                           = azurerm_resource_group.main.name
   virtual_network_name                          = azurerm_virtual_network.main.name
   address_prefixes                              = ["10.0.0.0/27"]
   private_endpoint_network_policies             = "Disabled"
@@ -39,7 +42,7 @@ resource "azurerm_subnet_network_security_group_association" "vm" {
 resource "azurerm_network_security_group" "ssh" {
   name                = "nsg-dev-ssh"
   location            = local.region
-  resource_group_name = local.resource_group_name
+  resource_group_name = azurerm_resource_group.main.name
   tags                = local.common_tags
   security_rule {
     name                       = "AllowMyIPSsh"
@@ -59,7 +62,7 @@ resource "azurerm_network_security_group" "ssh" {
 resource "azurerm_linux_virtual_machine" "ssh" {
   name                            = "vm-dev-ssh"
   location                        = "japaneast"
-  resource_group_name             = local.resource_group_name
+  resource_group_name             = azurerm_resource_group.main.name
   network_interface_ids           = [azurerm_network_interface.ssh.id]
   size                            = "Standard_B2ts_v2"
   computer_name                   = "vm-dev-ssh"
@@ -94,7 +97,7 @@ resource "azurerm_linux_virtual_machine" "ssh" {
 
 resource "azurerm_public_ip" "ssh" {
   name                    = "pep-dev-ssh"
-  resource_group_name     = local.resource_group_name
+  resource_group_name     = azurerm_resource_group.main.name
   location                = local.region
   allocation_method       = "Static"
   ddos_protection_mode    = "VirtualNetworkInherited"
@@ -111,7 +114,7 @@ resource "azurerm_public_ip" "ssh" {
 
 resource "azurerm_network_interface" "ssh" {
   name                           = "nic-dev-ssh"
-  resource_group_name            = local.resource_group_name
+  resource_group_name            = azurerm_resource_group.main.name
   location                       = local.region
   accelerated_networking_enabled = true
   ip_configuration {
@@ -165,7 +168,7 @@ resource "azurerm_storage_account" "split_brain_dns" {
   count                             = local.enable_split_brain_dns_beginner ? 1 : 0
   name                              = "stdevsplitbraindns${local.suffix}"
   location                          = local.region
-  resource_group_name               = local.resource_group_name
+  resource_group_name               = azurerm_resource_group.main.name
   access_tier                       = "Hot"
   account_kind                      = "StorageV2"
   account_replication_type          = "LRS"
@@ -202,7 +205,7 @@ resource "azurerm_storage_account" "split_brain_dns" {
 resource "azurerm_private_dns_zone" "split_brain_dns" {
   count               = local.enable_split_brain_dns_beginner ? 1 : 0
   name                = "privatelink.blob.core.windows.net"
-  resource_group_name = local.resource_group_name
+  resource_group_name = azurerm_resource_group.main.name
   tags                = local.common_tags
   soa_record {
     email        = "azureprivatedns-host.microsoft.com"
@@ -220,7 +223,7 @@ resource "azurerm_private_endpoint" "split_brain_dns" {
   name                          = "pe-st"
   custom_network_interface_name = "pe-st-nic"
   location                      = local.region
-  resource_group_name           = "SyamRG-dev"
+  resource_group_name           = azurerm_resource_group.main.name
   subnet_id                     = azurerm_subnet.pe.id
   tags                          = local.common_tags
 
@@ -252,7 +255,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "split_brain_dns" {
 # CAE
 resource "azurerm_container_app_environment" "main" {
   name                = "cae-dev"
-  resource_group_name = local.resource_group_name
+  resource_group_name = azurerm_resource_group.main.name
   location            = local.region
   workload_profile {
     maximum_count         = 0
@@ -267,7 +270,7 @@ resource "azurerm_container_app_environment" "main" {
 # ACA
 resource "azurerm_container_app" "main" {
   name                         = "ca-dev-nginx"
-  resource_group_name          = local.resource_group_name
+  resource_group_name          = azurerm_resource_group.main.name
   container_app_environment_id = azurerm_container_app_environment.main.id
   revision_mode                = "Single"
   max_inactive_revisions       = 100
@@ -376,7 +379,7 @@ resource "azapi_resource_action" "unbind_certificates" {
 ## Private Endpoint
 resource "azurerm_private_endpoint" "aca_environment" {
   name                          = "pe-aca"
-  resource_group_name           = local.resource_group_name
+  resource_group_name           = azurerm_resource_group.main.name
   custom_network_interface_name = "pe-aca-nic"
   location                      = local.region
   subnet_id                     = azurerm_subnet.pe.id
@@ -395,7 +398,7 @@ resource "azurerm_private_endpoint" "aca_environment" {
 
 resource "azurerm_private_dns_zone" "aca_private_link" {
   name                = "privatelink.japaneast.azurecontainerapps.io"
-  resource_group_name = local.resource_group_name
+  resource_group_name = azurerm_resource_group.main.name
   tags                = local.common_tags
   soa_record {
     email        = "azureprivatedns-host.microsoft.com"
@@ -418,7 +421,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "aca_private_link" {
 # Apex Domain`s Private DNS Zone
 resource "azurerm_private_dns_zone" "custom_domain" {
   name                = local.my_custom_domain
-  resource_group_name = local.resource_group_name
+  resource_group_name = azurerm_resource_group.main.name
   tags                = local.common_tags
   soa_record {
     email        = "azureprivatedns-host.microsoft.com"
