@@ -250,7 +250,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "split_brain_dns" {
 ### Container Apps 環境 + Container Apps + Private DNS Zone + Private Endpoint + 仮想ネットワークリンク
 
 # CAE
-resource "azurerm_container_app_environment" "aca_custom_domain" {
+resource "azurerm_container_app_environment" "main" {
   name                = "cae-dev"
   resource_group_name = local.resource_group_name
   location            = local.region
@@ -265,10 +265,10 @@ resource "azurerm_container_app_environment" "aca_custom_domain" {
 }
 
 # ACA
-resource "azurerm_container_app" "aca_custom_domain" {
+resource "azurerm_container_app" "main" {
   name                         = "ca-dev-nginx"
   resource_group_name          = local.resource_group_name
-  container_app_environment_id = azurerm_container_app_environment.aca_custom_domain.id
+  container_app_environment_id = azurerm_container_app_environment.main.id
   revision_mode                = "Single"
   max_inactive_revisions       = 100
   workload_profile_name        = "Consumption"
@@ -301,46 +301,46 @@ resource "azurerm_container_app" "aca_custom_domain" {
 }
 
 ## Custom Domain ＆ Certificate
-resource "azurerm_container_app_custom_domain" "aca_custom_domain_www" {
+resource "azurerm_container_app_custom_domain" "www" {
   name                     = "www.${local.my_custom_domain}"
   certificate_binding_type = "SniEnabled"
-  container_app_id         = azurerm_container_app.aca_custom_domain.id
+  container_app_id         = azurerm_container_app.main.id
 }
 
-resource "azurerm_container_app_environment_managed_certificate" "aca_custom_domain_www" {
+resource "azurerm_container_app_environment_managed_certificate" "www" {
   name                         = "www.${local.my_custom_domain}-cae-dev-260907093414"
-  container_app_environment_id = azurerm_container_app_environment.aca_custom_domain.id
+  container_app_environment_id = azurerm_container_app_environment.main.id
   domain_control_validation    = "CNAME"
   subject_name                 = "www.${local.my_custom_domain}"
   tags                         = local.common_tags
 
   depends_on = [
-    azurerm_container_app_custom_domain.aca_custom_domain_www
+    azurerm_container_app_custom_domain.www
   ]
 }
 
-resource "azurerm_container_app_custom_domain" "aca_custom_domain_apex" {
+resource "azurerm_container_app_custom_domain" "apex" {
   name                     = local.my_custom_domain
   certificate_binding_type = "SniEnabled"
-  container_app_id         = azurerm_container_app.aca_custom_domain.id
+  container_app_id         = azurerm_container_app.main.id
 }
 
-resource "azurerm_container_app_environment_managed_certificate" "aca_custom_domain_apex" {
+resource "azurerm_container_app_environment_managed_certificate" "apex" {
   name                         = "${local.my_custom_domain}-syamrg-d-260907105451"
-  container_app_environment_id = azurerm_container_app_environment.aca_custom_domain.id
+  container_app_environment_id = azurerm_container_app_environment.main.id
   domain_control_validation    = "HTTP"
   subject_name                 = local.my_custom_domain
   tags                         = local.common_tags
 
   depends_on = [
-    azurerm_container_app_custom_domain.aca_custom_domain_apex
+    azurerm_container_app_custom_domain.apex
   ]
 }
 
 # Destroy時に、証明書を削除する前に紐付けを解除する (証明書の紐付け解除 → 証明書削除 → カスタムドメイン削除)
-resource "azapi_resource_action" "aca_unbind_on_destroy" {
+resource "azapi_resource_action" "unbind_certificates" {
   type        = "Microsoft.App/containerApps@2025-07-01"
-  resource_id = azurerm_container_app.aca_custom_domain.id
+  resource_id = azurerm_container_app.main.id
   method      = "PATCH"
   when        = "destroy"
 
@@ -368,8 +368,8 @@ resource "azapi_resource_action" "aca_unbind_on_destroy" {
 
   # Destroyでは依存関係が逆順になり、この処理が証明書削除より先になる
   depends_on = [
-    azurerm_container_app_environment_managed_certificate.aca_custom_domain_www,
-    azurerm_container_app_environment_managed_certificate.aca_custom_domain_apex,
+    azurerm_container_app_environment_managed_certificate.www,
+    azurerm_container_app_environment_managed_certificate.apex,
   ]
 }
 
@@ -388,7 +388,7 @@ resource "azurerm_private_endpoint" "aca_environment" {
   private_service_connection {
     is_manual_connection           = false
     name                           = "pe-aca"
-    private_connection_resource_id = azurerm_container_app_environment.aca_custom_domain.id
+    private_connection_resource_id = azurerm_container_app_environment.main.id
     subresource_names              = ["managedEnvironments"]
   }
 }
@@ -416,7 +416,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "aca_private_link" {
 }
 
 # Apex Domain`s Private DNS Zone
-resource "azurerm_private_dns_zone" "aca_custom_domain" {
+resource "azurerm_private_dns_zone" "custom_domain" {
   name                = local.my_custom_domain
   resource_group_name = local.resource_group_name
   tags                = local.common_tags
@@ -431,25 +431,25 @@ resource "azurerm_private_dns_zone" "aca_custom_domain" {
   }
 }
 
-resource "azurerm_private_dns_zone_virtual_network_link" "aca_custom_domain" {
+resource "azurerm_private_dns_zone_virtual_network_link" "custom_domain" {
   name                 = "link-${local.my_custom_domain}"
-  private_dns_zone_id  = azurerm_private_dns_zone.aca_custom_domain.id
+  private_dns_zone_id  = azurerm_private_dns_zone.custom_domain.id
   registration_enabled = false
   virtual_network_id   = azurerm_virtual_network.main.id
   tags                 = local.common_tags
 }
 
-resource "azurerm_private_dns_cname_record" "aca_custom_domain_www" {
+resource "azurerm_private_dns_cname_record" "www" {
   name                = "www"
-  private_dns_zone_id = azurerm_private_dns_zone.aca_custom_domain.id
-  record              = azurerm_container_app.aca_custom_domain.ingress[0].fqdn
+  private_dns_zone_id = azurerm_private_dns_zone.custom_domain.id
+  record              = azurerm_container_app.main.ingress[0].fqdn
   tags                = local.common_tags
   ttl                 = 3600
 }
 
-resource "azurerm_private_dns_a_record" "aca_custom_domain_apex" {
+resource "azurerm_private_dns_a_record" "apex" {
   name                = "@"
-  private_dns_zone_id = azurerm_private_dns_zone.aca_custom_domain.id
+  private_dns_zone_id = azurerm_private_dns_zone.custom_domain.id
   records             = [azurerm_private_endpoint.aca_environment.private_service_connection[0].private_ip_address]
   tags                = local.common_tags
   ttl                 = 3600
