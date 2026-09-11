@@ -148,7 +148,7 @@ resource "azurerm_role_assignment" "vm_admin" {
   name                 = "0a7c3764-221b-4087-93af-0f45813ffc7f"
   scope                = azurerm_linux_virtual_machine.ssh.id
   role_definition_name = "Virtual Machine Administrator Login"
-  principal_id         = local.operation_user_id
+  principal_id         = data.azurerm_client_config.current.object_id
 }
 
 resource "azurerm_dev_test_global_vm_shutdown_schedule" "ssh" {

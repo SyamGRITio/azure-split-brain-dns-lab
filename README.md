@@ -104,24 +104,24 @@ Public DNSはXserver Domainで手動設定します。Terraformの管理対象�
 
 ## 1. 設定
 
-`terraform/local.tf`を自分の環境に合わせて変更します。
+Azure CLIでログインし、Terraformが使用するサブスクリプションを環境変数に設定します。
+
+```bash
+az login
+az account set --subscription "<サブスクリプションIDまたは名前>"
+export ARM_SUBSCRIPTION_ID="$(az account show --query id --output tsv)"
+export ARM_TENANT_ID="$(az account show --query tenantId --output tsv)"
+```
+
+VM管理者のロールは、ここでログインしたユーザーへ割り当てられます。続いて、`terraform/local.tf`を自分の環境に合わせて変更します。
 
 ```hcl
 locals {
-  operation_user_id   = "<AzureユーザーのオブジェクトID>"
-  tenant_id           = "<テナントID>"
-  subscription_id     = "<サブスクリプションID>"
   resource_group_name = "<作成するリソースグループ名>"
   region              = "japaneast"
   ssh_public_key_path = "~/.ssh/id_rsa.pub"
   my_custom_domain    = "example.com"
 }
-```
-
-```bash
-az account show --query tenantId --output tsv
-az account show --query id --output tsv
-az ad signed-in-user show --query id --output tsv
 ```
 
 初級編のStorage Accountも作成する場合は、次の値を`true`にします。

@@ -2,10 +2,9 @@ data "http" "my_public_ip" {
   url = "https://api.ipify.org"
 }
 
+data "azurerm_client_config" "current" {}
+
 locals {
-  operation_user_id   = "REMOVED_AZURE_OBJECT_ID"
-  tenant_id           = "REMOVED_AZURE_TENANT_ID"
-  subscription_id     = "REMOVED_AZURE_SUBSCRIPTION_ID"
   resource_group_name = "rg-syam-dev"
   region              = "japaneast"
   my_public_ip_cider  = "${trimspace(data.http.my_public_ip.response_body)}/32"
