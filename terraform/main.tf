@@ -263,7 +263,7 @@ resource "azurerm_container_app_environment" "main" {
     name                  = "Consumption"
     workload_profile_type = "Consumption"
   }
-  public_network_access = "Disabled"
+  public_network_access = local.deployment.public_network_access
   tags                  = local.common_tags
 }
 
@@ -305,12 +305,39 @@ resource "azurerm_container_app" "main" {
 
 ## Custom Domain ＆ Certificate
 resource "azurerm_container_app_custom_domain" "www" {
-  name                     = "www.${local.my_custom_domain}"
-  certificate_binding_type = "SniEnabled"
-  container_app_id         = azurerm_container_app.main.id
+  count = local.deployment.enable_certificates ? 1 : 0
+
+  name             = "www.${local.my_custom_domain}"
+  container_app_id = azurerm_container_app.main.id
+
+  lifecycle {
+    ignore_changes = [
+      certificate_binding_type,
+    ]
+  }
+}
+
+resource "azurerm_container_app_custom_domain" "apex" {
+  count = local.deployment.enable_certificates ? 1 : 0
+
+  name             = local.my_custom_domain
+  container_app_id = azurerm_container_app.main.id
+
+  lifecycle {
+    ignore_changes = [
+      certificate_binding_type,
+    ]
+  }
+
+  # 同じContainer Appへの更新が並行しないようにする
+  depends_on = [
+    azurerm_container_app_custom_domain.www
+  ]
 }
 
 resource "azurerm_container_app_environment_managed_certificate" "www" {
+  count = local.deployment.enable_certificates ? 1 : 0
+
   name                         = "www.${local.my_custom_domain}-cae-dev-260907093414"
   container_app_environment_id = azurerm_container_app_environment.main.id
   domain_control_validation    = "CNAME"
@@ -322,13 +349,9 @@ resource "azurerm_container_app_environment_managed_certificate" "www" {
   ]
 }
 
-resource "azurerm_container_app_custom_domain" "apex" {
-  name                     = local.my_custom_domain
-  certificate_binding_type = "SniEnabled"
-  container_app_id         = azurerm_container_app.main.id
-}
-
 resource "azurerm_container_app_environment_managed_certificate" "apex" {
+  count = local.deployment.enable_certificates ? 1 : 0
+
   name                         = "${local.my_custom_domain}-syamrg-d-260907105451"
   container_app_environment_id = azurerm_container_app_environment.main.id
   domain_control_validation    = "HTTP"
@@ -340,8 +363,43 @@ resource "azurerm_container_app_environment_managed_certificate" "apex" {
   ]
 }
 
+# 発行したマネージド証明書をカスタムドメインへ紐づける
+resource "azapi_resource_action" "bind_certificates" {
+  count = local.deployment.enable_certificates ? 1 : 0
+
+  type        = "Microsoft.App/containerApps@2025-07-01"
+  resource_id = azurerm_container_app.main.id
+  method      = "PATCH"
+  when        = "apply"
+
+  body = {
+    location = local.region
+    properties = {
+      configuration = {
+        ingress = {
+          customDomains = [
+            {
+              name          = "www.${local.my_custom_domain}"
+              bindingType   = "SniEnabled"
+              certificateId = azurerm_container_app_environment_managed_certificate.www[0].id
+            },
+            {
+              name          = local.my_custom_domain
+              bindingType   = "SniEnabled"
+              certificateId = azurerm_container_app_environment_managed_certificate.apex[0].id
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+
+
 # Destroy時に、証明書を削除する前に紐付けを解除する (証明書の紐付け解除 → 証明書削除 → カスタムドメイン削除)
 resource "azapi_resource_action" "unbind_certificates" {
+  count = local.deployment.enable_certificates ? 1 : 0
+
   type        = "Microsoft.App/containerApps@2025-07-01"
   resource_id = azurerm_container_app.main.id
   method      = "PATCH"
@@ -371,13 +429,14 @@ resource "azapi_resource_action" "unbind_certificates" {
 
   # Destroyでは依存関係が逆順になり、この処理が証明書削除より先になる
   depends_on = [
-    azurerm_container_app_environment_managed_certificate.www,
-    azurerm_container_app_environment_managed_certificate.apex,
+    azapi_resource_action.bind_certificates,
   ]
 }
 
 ## Private Endpoint
 resource "azurerm_private_endpoint" "aca_environment" {
+  count = local.deployment.enable_private_access ? 1 : 0
+
   name                          = "pe-aca"
   resource_group_name           = azurerm_resource_group.main.name
   custom_network_interface_name = "pe-aca-nic"
@@ -386,7 +445,7 @@ resource "azurerm_private_endpoint" "aca_environment" {
   tags                          = local.common_tags
   private_dns_zone_group {
     name                 = "default"
-    private_dns_zone_ids = [azurerm_private_dns_zone.aca_private_link.id]
+    private_dns_zone_ids = [azurerm_private_dns_zone.aca_private_link[0].id]
   }
   private_service_connection {
     is_manual_connection           = false
@@ -397,6 +456,8 @@ resource "azurerm_private_endpoint" "aca_environment" {
 }
 
 resource "azurerm_private_dns_zone" "aca_private_link" {
+  count = local.deployment.enable_private_access ? 1 : 0
+
   name                = "privatelink.japaneast.azurecontainerapps.io"
   resource_group_name = azurerm_resource_group.main.name
   tags                = local.common_tags
@@ -412,14 +473,18 @@ resource "azurerm_private_dns_zone" "aca_private_link" {
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "aca_private_link" {
+  count = local.deployment.enable_private_access ? 1 : 0
+
   name                = "link-aca"
-  private_dns_zone_id = azurerm_private_dns_zone.aca_private_link.id
+  private_dns_zone_id = azurerm_private_dns_zone.aca_private_link[0].id
   tags                = local.common_tags
   virtual_network_id  = azurerm_virtual_network.main.id
 }
 
 # Apex Domain`s Private DNS Zone
 resource "azurerm_private_dns_zone" "custom_domain" {
+  count = local.deployment.enable_private_access ? 1 : 0
+
   name                = local.my_custom_domain
   resource_group_name = azurerm_resource_group.main.name
   tags                = local.common_tags
@@ -435,25 +500,31 @@ resource "azurerm_private_dns_zone" "custom_domain" {
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "custom_domain" {
+  count = local.deployment.enable_private_access ? 1 : 0
+
   name                 = "link-${local.my_custom_domain}"
-  private_dns_zone_id  = azurerm_private_dns_zone.custom_domain.id
+  private_dns_zone_id  = azurerm_private_dns_zone.custom_domain[0].id
   registration_enabled = false
   virtual_network_id   = azurerm_virtual_network.main.id
   tags                 = local.common_tags
 }
 
 resource "azurerm_private_dns_cname_record" "www" {
+  count = local.deployment.enable_private_access ? 1 : 0
+
   name                = "www"
-  private_dns_zone_id = azurerm_private_dns_zone.custom_domain.id
+  private_dns_zone_id = azurerm_private_dns_zone.custom_domain[0].id
   record              = azurerm_container_app.main.ingress[0].fqdn
   tags                = local.common_tags
   ttl                 = 3600
 }
 
 resource "azurerm_private_dns_a_record" "apex" {
+  count = local.deployment.enable_private_access ? 1 : 0
+
   name                = "@"
-  private_dns_zone_id = azurerm_private_dns_zone.custom_domain.id
-  records             = [azurerm_private_endpoint.aca_environment.private_service_connection[0].private_ip_address]
+  private_dns_zone_id = azurerm_private_dns_zone.custom_domain[0].id
+  records             = [azurerm_private_endpoint.aca_environment[0].private_service_connection[0].private_ip_address]
   tags                = local.common_tags
   ttl                 = 3600
 }
