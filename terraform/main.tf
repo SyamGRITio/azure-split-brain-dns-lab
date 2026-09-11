@@ -84,7 +84,7 @@ resource "azurerm_linux_virtual_machine" "ssh" {
 
   admin_ssh_key {
     username   = "azureuser"
-    public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC9MB0kt1OY53YmfDbsgBOotalBoXVYIzTJuH1sS/NP2o7LUqKbwPjgmIhfhhMjzHx2oyyRkRfgSsOOmdUtT6sMoED3meF4OZtXsmlx8eLGggv2477VPaummdAyhzxqSgaau3SZ6j9M+g8aRt3MWD4DCMSicZJbuD71SO+tVChQGP/om3quAE7UiX5pfI7Myo8cMKeWkPNPFDkWcqxw3Npa7qnG7SFdyc2YGRF0450joJX4CG9q8TH6k6V+bbmdOQRttnaQT1lH6fPsE0Io9NcGIzZ3x64DBRswS4z7ULDsWyeqCQk+Tu7hIkVBmkiD5+dNCDJ4Xs9fCu4sr0EfpEW17iyPH9cHL81623S35Nyk2ppcJ6sOG/54OkQ+2ox3bHMDp37N5KeN8pjiGz278xpMvVNtFN0dgcLzC5rUK6PYtEZVnXi50SwRsQpddXkXmPDx2WjXQ2gkOJL2VP5rYjpU7lw+pDmDuKh6HU4TU94e4Pfb/3yvBafs+9lNBTnWoIk= generated-by-azure"
+    public_key = file(pathexpand(local.ssh_public_key_path))
   }
 
   identity {

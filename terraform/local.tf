@@ -3,15 +3,14 @@ data "http" "my_public_ip" {
 }
 
 locals {
-  operation_user_id = "REMOVED_AZURE_OBJECT_ID"
-
+  operation_user_id   = "REMOVED_AZURE_OBJECT_ID"
   tenant_id           = "REMOVED_AZURE_TENANT_ID"
   subscription_id     = "REMOVED_AZURE_SUBSCRIPTION_ID"
   resource_group_name = "rg-syam-dev"
   region              = "japaneast"
-
-  my_public_ip_cider = "${trimspace(data.http.my_public_ip.response_body)}/32"
-
+  my_public_ip_cider  = "${trimspace(data.http.my_public_ip.response_body)}/32"
+  ssh_public_key_path = "~/.ssh/id_rsa.pub"
+  my_custom_domain    = "syam-gritio.com"
   common_tags = {
     managedBy = "Terraform"
   }
@@ -19,7 +18,5 @@ locals {
 
   # 初級編で使用するストレージアカウントを作成する場合は true にする
   enable_split_brain_dns_beginner = false
-
-  my_custom_domain = "syam-gritio.com"
 }
 
