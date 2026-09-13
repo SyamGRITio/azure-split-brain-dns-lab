@@ -7,10 +7,9 @@ resource "azurerm_resource_group" "main" {
 
 ### Network (VNet+ subNet×2 + NSG + NSG association) ###
 resource "azurerm_virtual_network" "main" {
-  name                           = "vnet-dev-001"
-  resource_group_name            = azurerm_resource_group.main.name
-  location                       = local.region
-  private_endpoint_vnet_policies = "Disabled"
+  name                = "vnet-dev"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = local.region
   address_space = [
     "10.0.0.0/16"
   ]
@@ -18,20 +17,17 @@ resource "azurerm_virtual_network" "main" {
 }
 
 resource "azurerm_subnet" "pe" {
-  name                                          = "snet-pe"
-  resource_group_name                           = azurerm_resource_group.main.name
-  virtual_network_name                          = azurerm_virtual_network.main.name
-  address_prefixes                              = ["10.0.1.0/27"]
-  private_link_service_network_policies_enabled = true
+  name                 = "snet-pe"
+  resource_group_name  = azurerm_resource_group.main.name
+  virtual_network_name = azurerm_virtual_network.main.name
+  address_prefixes     = ["10.0.1.0/27"]
 }
 
 resource "azurerm_subnet" "vm" {
-  name                                          = "snet-vm"
-  resource_group_name                           = azurerm_resource_group.main.name
-  virtual_network_name                          = azurerm_virtual_network.main.name
-  address_prefixes                              = ["10.0.0.0/27"]
-  private_endpoint_network_policies             = "Disabled"
-  private_link_service_network_policies_enabled = true
+  name                 = "snet-vm"
+  resource_group_name  = azurerm_resource_group.main.name
+  virtual_network_name = azurerm_virtual_network.main.name
+  address_prefixes     = ["10.0.0.0/27"]
 }
 
 resource "azurerm_subnet_network_security_group_association" "vm" {
@@ -96,7 +92,7 @@ resource "azurerm_linux_virtual_machine" "ssh" {
 }
 
 resource "azurerm_public_ip" "ssh" {
-  name                    = "pep-dev-ssh"
+  name                    = "pip-dev-ssh"
   resource_group_name     = azurerm_resource_group.main.name
   location                = local.region
   allocation_method       = "Static"
