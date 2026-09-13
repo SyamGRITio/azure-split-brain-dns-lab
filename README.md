@@ -2,9 +2,12 @@
 
 Zennの[初級編（Storage Account）](https://zenn.dev/gritio28tech/articles/d60ab47c81934f)と[中級編（Azure Container Appsのカスタムドメイン）](https://zenn.dev/gritio28tech/articles/441d92f09287b8)で検証した、Azure Private Endpointとsplit-brain DNSの構成をIaCで再現するリポジトリです。
 
-現在はTerraform版を利用できます。Bicep版は今後追加予定です。
+Terraform版とBicep版を用意しています。
 
-## 構成概要
+- [Terraform版の使い方](./terraform/README.md)
+- [Bicep版の使い方](./bicep/README.md)
+
+## 検証構成
 
 ### 初級編：Storage Account
 
@@ -68,159 +71,38 @@ flowchart LR
   linkStyle 2 stroke:#d13438,color:#d13438
 ```
 
+## TerraformとBicepを使った感想
+
+今回の構成を両方で作成・削除した、個人的な感想です。
+
+| 観点 | Terraform | Bicep |
+| --- | --- | --- |
+| 差分確認 | `plan`で確認したい変更を追いやすい | What-Ifのノイズが多く、変更点が埋もれやすい |
+| 既存環境のIaC化 | importと`-generate-config-out`を起点にコードを調整できる | Portalから取得したテンプレートをそのまま使えない場合がある |
+| 状態管理 | stateの管理が必要 | stateやimportが不要 |
+| 証明書のバインド | AzAPIで紐付けと解除を実装した | `bindingType: 'Auto'`で自動化できた |
+| 削除 | `terraform destroy`でまとめて削除できる | 今回はリソースグループごと削除する |
+| 今回の印象 | コードと差分を読みやすく、検証を進めやすかった | 関係のない既存リソースも再評価される点が不便だった |
+
+個人的には、Microsoft製品中心の企業でも、人の入れ替わりがある現場では、共通言語にしやすいTerraformでインフラIaCを書く方がよいと改めて思いました。
+
+今回Bicepに軍配が上がったと感じたのは、マネージド証明書とカスタムドメインのバインドを`Auto`にできた点です。stateやimportが不要な点と、ARM APIのバージョンを直接指定できる点も利点ですが、今回は大きな恩恵を実感しませんでした。
+
+## 検証費用
+
+![Azureの検証費用](./docs/images/azure-cost-example.png)
+
+今回はすべてのリソースを数時間ずつ稼働させながら、1日で初級編・中級編の検証を行い、費用は約323円でした。構成や稼働時間によって変わりますが、1日で検証する場合は200〜300円台が目安です。
+
 ## ディレクトリ構成
 
 ```text
 .
-├── terraform/
-│   ├── main.tf
-│   ├── local.tf
-│   ├── providers.tf
-│   ├── versions.tf
-│   └── backend.tf
-├── bicep/              # 今後追加予定
+├── terraform/          # Terraform版と固有のREADME
+├── bicep/              # Bicep版、パラメーターファイル、固有のREADME
+├── docs/images/        # READMEで使用する画像
 ├── README.md
 └── LICENSE
 ```
 
-> Azureリソースには料金が発生する場合があります。検証後は削除してください。
-
-## 前提条件
-
-- Terraform `1.16.x`
-- Azure CLIでAzureへログイン済み
-- Azureリソースを作成できる権限
-- SSH公開鍵
-- 自分で管理しているカスタムドメイン
-- Public DNSへA、CNAME、TXTレコードを登録できること
-
-Public DNSはXserver Domainで手動設定します。Terraformの管理対象には含まれません。
-
-## Terraformで工夫したこと
-
-- 構築を`base → certificate → private`の3段階に分けています。Public DNSの手動設定を挟み、公開アクセスが有効な状態でマネージド証明書を作成してから、公開アクセスを無効にしてPrivate Endpointを作成するためです。コードをコメントアウトせず、`deployment_phase`の指定だけで段階を切り替えられます。
-- VMのSSH公開鍵はコードへ直書きせず、`ssh_public_key_path`で指定したローカルファイルから読み込みます。秘密鍵はTerraformで管理しません。
-- 削除時は、カスタムドメインから証明書の紐付けを解除してからマネージド証明書を削除します。これにより、`CertificateInUse`エラーを避けて一度の`terraform destroy`で削除できます。
-
-## 1. 設定
-
-Azure CLIでログインし、Terraformが使用するサブスクリプションを環境変数に設定します。
-
-```bash
-az login
-az account set --subscription "<サブスクリプションIDまたは名前>"
-export ARM_SUBSCRIPTION_ID="$(az account show --query id --output tsv)"
-export ARM_TENANT_ID="$(az account show --query tenantId --output tsv)"
-```
-
-VM管理者のロールは、ここでログインしたユーザーへ割り当てられます。続いて、`terraform/local.tf`を自分の環境に合わせて変更します。
-
-```hcl
-locals {
-  resource_group_name = "<作成するリソースグループ名>"
-  region              = "japaneast"
-  ssh_public_key_path = "~/.ssh/id_rsa.pub"
-  my_custom_domain    = "example.com"
-}
-```
-
-初級編のStorage Accountも作成する場合は、次の値を`true`にします。
-
-```hcl
-enable_split_brain_dns_beginner = true
-```
-
-## 2. 作成
-
-Azure側の制約とPublic DNSの手動設定があるため、`base → certificate → private`の順に進めます。
-
-### base
-
-```bash
-cd terraform
-terraform init
-terraform validate
-
-terraform plan -var='deployment_phase=base' -out='base.tfplan'
-terraform apply "base.tfplan"
-```
-
-Public DNSへ登録する値を確認します。
-
-```bash
-az containerapp env show --resource-group <リソースグループ名> --name cae-dev --query properties.staticIp --output tsv
-az containerapp show --resource-group <リソースグループ名> --name ca-dev-nginx --query properties.configuration.ingress.fqdn --output tsv
-az containerapp show --resource-group <リソースグループ名> --name ca-dev-nginx --query properties.customDomainVerificationId --output tsv
-```
-
-次のレコードをPublic DNSへ手動登録します。
-
-| 名前 | 種類 | 値 |
-| --- | --- | --- |
-| `@` | A | Container Apps環境のStatic IP |
-| `www` | CNAME | Container Appの生成FQDN |
-| `asuid` | TXT | Custom Domain Verification ID |
-| `asuid.www` | TXT | Custom Domain Verification ID |
-
-### certificate
-
-```bash
-terraform plan -var='deployment_phase=certificate' -out='certificate.tfplan'
-terraform apply -parallelism=1 "certificate.tfplan"
-```
-
-### private
-
-```bash
-terraform plan -var='deployment_phase=private' -out='private.tfplan'
-terraform apply "private.tfplan"
-```
-
-## 3. 動作確認
-
-VNet外ではPublic DNSで名前解決できますが、HTTPS接続は失敗します。
-
-```bash
-curl -sS -o /dev/null -w 'RemoteIP: %{remote_ip}\nHTTPStatus: %{http_code}\n' https://www.<カスタムドメイン>
-curl -sS -o /dev/null -w 'RemoteIP: %{remote_ip}\nHTTPStatus: %{http_code}\n' https://<カスタムドメイン>
-```
-
-検証用VMへ接続します。
-
-```bash
-az ssh vm --resource-group <リソースグループ名> --name vm-dev-ssh --local-user azureuser
-```
-
-VNet内では、3つの名前が最終的にPrivate EndpointのPrivate IPへ名前解決され、HTTPSで接続できます。
-
-```bash
-sudo resolvectl flush-caches
-
-dig +noall +answer <Container Appの生成FQDN>
-dig +noall +answer www.<カスタムドメイン>
-dig +noall +answer <カスタムドメイン>
-
-curl -sS -o /dev/null -w 'RemoteIP: %{remote_ip}\nHTTPStatus: %{http_code}\n' https://<確認するホスト名>
-```
-
-初級編のStorage Accountも作成した場合は、次の形式で確認します。Private IPへ接続できていれば、Blob APIから`400`が返ってもネットワーク疎通は成功です。
-
-```bash
-dig +noall +answer <Storage Account名>.blob.core.windows.net
-curl -sS -o /dev/null -w 'RemoteIP: %{remote_ip}\nHTTPStatus: %{http_code}\n' https://<Storage Account名>.blob.core.windows.net
-```
-
-最後にTerraformとの差分がないことを確認します。
-
-```bash
-terraform plan -var='deployment_phase=private'
-```
-
-## 4. 削除
-
-```bash
-terraform destroy -var='deployment_phase=private'
-terraform state list
-```
-
-`terraform state list`で何も表示されなければ完了です。Public DNSのレコードはTerraformで削除されないため、不要になったらXserver Domain側で削除します。
+Public DNSはXserver Domainで手動設定します。IaCの管理対象には含まれないため、検証後はAzureリソースだけでなく、不要になったPublic DNSレコードも削除してください。
