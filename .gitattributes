@@ -1,5 +1,9 @@
 * text=auto
+.gitattributes text eol=lf
+.gitignore text eol=lf
 *.tf text eol=lf
 *.hcl text eol=lf
+*.bicep text eol=lf
+*.bicepparam text eol=lf
 *.md text eol=lf
 *.sh text eol=lf
